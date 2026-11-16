@@ -6,9 +6,9 @@
     "semantic_hash": ""
   },
   "src/PressePapiers/MainForm.cs": {
-    "mtime": 1794857656.0719297,
-    "seen": 1794857704.933026,
-    "ast_hash": "000a6d8f9b2ca0e97d93072193d539ba",
+    "mtime": 1794857867.1014974,
+    "seen": 1794857881.1930346,
+    "ast_hash": "f42b0f9105b9a76d78f186064d982db6",
     "semantic_hash": ""
   },
   "src/PressePapiers/PressePapiers.csproj": {
@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1794857699.480049,
-    "seen": 1794857704.933026,
-    "ast_hash": "783403150b368ab4d8533838aa91caf9",
+    "mtime": 1794857873.5028849,
+    "seen": 1794857881.1930346,
+    "ast_hash": "c95a48449fc0121de62eac218e0e0f50",
     "semantic_hash": ""
   },
   "tools/make_icon.ps1": {

@@ -27,7 +27,7 @@ public class MainForm : Form
     readonly NotifyIcon tray = new() { Text = "Presse-papiers (Ctrl+Maj+V)", Icon = AppIcon, Visible = true };
     static readonly Icon AppIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
     readonly ToolTip tip = new();
-    bool allowShow;
+    bool allowShow, inDialog;
     IntPtr previousWindow;
 
     public MainForm()
@@ -90,6 +90,8 @@ public class MainForm : Form
         };
 
         var itemMenu = new ContextMenuStrip();
+        itemMenu.Items.Add("Copier", null, (_, _) => { if (list.SelectedItem is Item it) CopyToClipboard(it); });
+        itemMenu.Items.Add("Enregistrer sous…", null, (_, _) => SaveSelectedAs());
         itemMenu.Items.Add("Épingler / désépingler", null, (_, _) => TogglePin());
         itemMenu.Items.Add("Supprimer", null, (_, _) => DeleteSelected());
         list.ContextMenuStrip = itemMenu;
@@ -101,7 +103,7 @@ public class MainForm : Form
         tray.ContextMenuStrip = trayMenu;
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowWindow(); };
 
-        Deactivate += (_, _) => Hide();
+        Deactivate += (_, _) => { if (!inDialog) Hide(); };
         FormClosing += (_, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Hide(); };
         Refresh_();
@@ -214,9 +216,8 @@ public class MainForm : Form
         search.Focus();
     }
 
-    async void PasteSelected()
+    bool CopyToClipboard(Item it)
     {
-        if (list.SelectedItem is not Item it) return;
         try
         {
             if (it.Kind == Kind.Text) Clipboard.SetText(it.Text);
@@ -226,12 +227,43 @@ public class MainForm : Form
                 using var img = Image.FromStream(ms);
                 Clipboard.SetImage(img);
             }
+            return true;
         }
         catch (Exception ex) when (ex is ExternalException or IOException)
         {
-            MessageBox.Show("Impossible de copier cet élément : " + ex.Message, "Presse-papiers");
-            return;
+            inDialog = true;
+            MessageBox.Show(this, "Impossible de copier cet élément : " + ex.Message, "Presse-papiers");
+            inDialog = false;
+            return false;
         }
+    }
+
+    void SaveSelectedAs()
+    {
+        if (list.SelectedItem is not Item it) return;
+        bool image = it.Kind == Kind.Image;
+        using var dlg = new SaveFileDialog
+        {
+            Filter = image ? "Image PNG (*.png)|*.png" : "Texte (*.txt)|*.txt",
+            FileName = (image ? "capture_" : "texte_") + it.Time.ToString("yyyy-MM-dd_HH-mm-ss"),
+        };
+        inDialog = true;
+        try
+        {
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            if (image) File.Copy(ImagePath(it), dlg.FileName, true);
+            else File.WriteAllText(dlg.FileName, it.Text);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(this, "Enregistrement impossible : " + ex.Message, "Presse-papiers");
+        }
+        finally { inDialog = false; Activate(); }
+    }
+
+    async void PasteSelected()
+    {
+        if (list.SelectedItem is not Item it || !CopyToClipboard(it)) return;
         Hide();
         if (previousWindow == IntPtr.Zero) return;
         SetForegroundWindow(previousWindow);

@@ -17,6 +17,8 @@ public class MainForm : Form
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32.dll")] static extern IntPtr GetClipboardOwner();
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 
     const int WM_CLIPBOARDUPDATE = 0x031D, WM_HOTKEY = 0x0312, HOTKEY_ID = 1;
@@ -42,6 +44,7 @@ public class MainForm : Form
     readonly ToolTip tip = new() { AutoPopDelay = 30000 };
     bool allowShow, inDialog;
     IntPtr previousWindow;
+    DateTime hiddenAt;
 
     public MainForm()
     {
@@ -136,16 +139,18 @@ public class MainForm : Form
         list.ContextMenuStrip = itemMenu;
 
         var trayMenu = new ContextMenuStrip();
-        trayOpen.Click += (_, _) => ShowWindow();
+        trayOpen.Click += (_, _) => ShowWindow(fromTray: true);
         trayMenu.Items.Add(trayOpen);
         trayMenu.Items.Add("Vider l'historique (garde les épinglés)", null, (_, _) => { DeleteImages(history.ClearUnpinned()); SaveAndRefresh(); });
         trayMenu.Items.Add("Quitter", null, (_, _) => { tray.Visible = false; Application.Exit(); });
-        trayMenu.Items.Add("Paramètres…", null, (_, _) => { ShowWindow(); OpenSettings(); });
+        trayMenu.Items.Add("Paramètres…", null, (_, _) => { ShowWindow(fromTray: true); OpenSettings(); });
         tray.ContextMenuStrip = trayMenu;
         UpdateHotkeyText();
-        tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowWindow(); };
+        // Clic sur l'icône : ouvre, ou referme si la fenêtre vient d'être cachée par ce même clic.
+        tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && (DateTime.Now - hiddenAt).TotalMilliseconds > 300) ShowWindow(fromTray: true); };
 
         Deactivate += (_, _) => { if (!inDialog) Hide(); };
+        VisibleChanged += (_, _) => { if (!Visible) hiddenAt = DateTime.Now; };
         FormClosing += (_, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
         KeyDown += (_, e) =>
         {
@@ -396,19 +401,35 @@ public class MainForm : Form
         }
     }
 
-    void ShowWindow()
+    void ShowWindow(bool fromTray = false)
     {
         var fg = GetForegroundWindow();
-        if (fg != Handle) previousWindow = fg;
+        if (fg != Handle && !fromTray) previousWindow = fg; // depuis l'icône, la fenêtre au premier plan est la barre des tâches
         var cur = Cursor.Position;
         var wa = Screen.FromPoint(cur).WorkingArea;
-        Location = new Point(Math.Clamp(cur.X, wa.Left, wa.Right - Width), Math.Clamp(cur.Y, wa.Top, wa.Bottom - Height));
+        // Depuis l'icône : en bas à droite, au-dessus de l'horloge. Sinon : sous la souris.
+        Location = fromTray
+            ? new Point(wa.Right - Width - 8, wa.Bottom - Height - 8)
+            : new Point(Math.Clamp(cur.X, wa.Left, wa.Right - Width), Math.Clamp(cur.Y, wa.Top, wa.Bottom - Height));
         allowShow = true;
         search.Text = "";
         Refresh_();
         Show();
-        Activate();
+        ForceForeground();
         search.Focus();
+    }
+
+    // Windows refuse parfois le premier plan à une appli en arrière-plan ; sans focus, Deactivate ne se déclenche jamais
+    // et la fenêtre ne se cacherait plus. On s'attache au thread de la fenêtre active le temps de prendre le focus.
+    void ForceForeground()
+    {
+        var fg = GetForegroundWindow();
+        if (fg == Handle) return;
+        uint fgThread = GetWindowThreadProcessId(fg, out _), me = GetCurrentThreadId();
+        bool attached = fgThread != 0 && fgThread != me && AttachThreadInput(me, fgThread, true);
+        SetForegroundWindow(Handle);
+        Activate();
+        if (attached) AttachThreadInput(me, fgThread, false);
     }
 
     bool CopyToClipboard(Item it)

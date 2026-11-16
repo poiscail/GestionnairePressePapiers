@@ -4,13 +4,21 @@ Petit outil Windows qui garde l'historique de tout ce que vous copiez (texte et 
 
 ## Installation
 
-Il faut le SDK .NET 8.
+Le plus simple : télécharger `GestionnairePressePapiers.exe` dans les [Releases](https://github.com/poiscail/GestionnairePressePapiers/releases) et le lancer. Un seul fichier, pas besoin d'installer .NET.
+
+Pour compiler soi-même, il faut le SDK .NET 8.
 
 ```bash
 dotnet build src/PressePapiers -c Release
 ```
 
 L'exécutable est dans `src/PressePapiers/bin/Release/net8.0-windows/GestionnairePressePapiers.exe`.
+
+Pour faire le `.exe` unique et autonome (dossier `publish/`) :
+
+```bash
+dotnet publish src/PressePapiers -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
+```
 
 Pour le lancer au démarrage de Windows : bouton ⚙ de la fenêtre, case « Lancer au démarrage de Windows ».
 

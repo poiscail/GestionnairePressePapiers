@@ -14,6 +14,8 @@ public class MainForm : Form
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32.dll")] static extern IntPtr GetClipboardOwner();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 
@@ -322,16 +324,16 @@ public class MainForm : Form
         int y = Math.Clamp(Cursor.Position.Y - size.Height / 2, wa.Top, Math.Max(wa.Top, wa.Bottom - size.Height));
         preview.Box.Image?.Dispose();
         preview.Box.Image = img;
-        preview.Bounds = new Rectangle(x, y, size.Width, size.Height);
         previewKey = it.Key;
-        preview.Show();
+        // Affichage Win32 sans activation : Show() de WinForms vole le focus et la fenêtre principale se cacherait.
+        SetWindowPos(preview.Handle, new IntPtr(-1), x, y, size.Width, size.Height, 0x0010 | 0x0040); // HWND_TOPMOST, SWP_NOACTIVATE | SWP_SHOWWINDOW
     }
 
     void HidePreview()
     {
         if (previewKey == null) return;
         previewKey = null;
-        preview.Hide();
+        ShowWindow(preview.Handle, 0); // SW_HIDE
         preview.Box.Image?.Dispose();
         preview.Box.Image = null;
     }
@@ -344,13 +346,17 @@ public class MainForm : Form
         {
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
-            TopMost = true;
             StartPosition = FormStartPosition.Manual;
             Padding = new Padding(1);
             BackColor = SystemColors.ControlDark;
             Controls.Add(Box);
         }
         protected override bool ShowWithoutActivation => true;
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == 0x21) { m.Result = new IntPtr(3); return; } // WM_MOUSEACTIVATE -> MA_NOACTIVATE
+            base.WndProc(ref m);
+        }
         protected override CreateParams CreateParams
         {
             get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x80 | 0x8; return cp; } // NOACTIVATE | TOOLWINDOW | TOPMOST

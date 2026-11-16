@@ -43,6 +43,20 @@ try
 
     Check(T("https://exemple.fr/page").Link != null && T("voir https://exemple.fr").Link == null && T(@"C:\dossier").Link == null, "détection des liens");
 
+    var hd = new History(file, max: 10) { MaxDays = 7 };
+    hd.Add(new Item { Kind = Kind.Text, Text = "vieux", Key = "vieux", Time = DateTime.Now.AddDays(-30) });
+    hd.Add(new Item { Kind = Kind.Text, Text = "vieux épinglé", Key = "ve", Time = DateTime.Now.AddDays(-30), Pinned = true });
+    hd.Add(T("récent"));
+    Check(hd.Items.Count == 2 && hd.Items.All(x => x.Text != "vieux"), "effacement après X jours, sauf épinglés");
+
+    var hr = new History(file, max: 5);
+    hr.Add(new Item { Kind = Kind.Text, Text = "g", Key = "g", Rtf = "{\\rtf1 g}" });
+    hr.Add(T("g"));
+    Check(hr.Items[0].Rtf != null, "recoller en texte brut garde la mise en forme connue");
+
+    var v = new Version(1, 1, 0, 0);
+    Check(Release.IsNewer("v1.2", v) && !Release.IsNewer("v1.1", v) && !Release.IsNewer("1.0.0", v) && !Release.IsNewer("abc", v), "comparaison des versions");
+
     File.WriteAllText(file, "{ cassé");
     var h3 = new History(file); h3.Load();
     Check(h3.Items.Count == 0 && File.Exists(file + ".bak"), "fichier corrompu : sauvegarde .bak et repart à vide");

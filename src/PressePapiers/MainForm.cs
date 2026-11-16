@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace PressePapiers;
 
@@ -46,6 +47,10 @@ public class MainForm : Form
     IntPtr previousWindow;
     DateTime hiddenAt;
     Color lineColor = SystemColors.ControlLight, linkColor = Color.RoyalBlue;
+    readonly FlowLayoutPanel filters = new() { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(2, 2, 2, 0) };
+    string filter = "Tout";
+    string? updateUrl;
+    readonly System.Windows.Forms.Timer updateTimer = new() { Interval = 24 * 60 * 60 * 1000 };
 
     public MainForm()
     {
@@ -61,7 +66,16 @@ public class MainForm : Form
         var top = new Panel { Dock = DockStyle.Top };
         top.Controls.Add(search);
         top.Controls.Add(gear);
+        // Filtre par type : Tout / Texte / Images / Liens
+        foreach (var name in new[] { "Tout", "Texte", "Images", "Liens" })
+        {
+            var rb = new RadioButton { Text = name, Appearance = Appearance.Button, AutoSize = true, FlatStyle = FlatStyle.Flat, TabStop = false, Checked = name == filter, Margin = new Padding(2), Font = small };
+            rb.FlatAppearance.BorderSize = 0;
+            rb.CheckedChanged += (_, _) => { if (rb.Checked) { filter = rb.Text; Refresh_(); } };
+            filters.Controls.Add(rb);
+        }
         Controls.Add(list);
+        Controls.Add(filters);
         Controls.Add(top);
         top.Height = search.PreferredHeight;
         gear.FlatAppearance.BorderSize = 0;
@@ -69,21 +83,23 @@ public class MainForm : Form
         tip.SetToolTip(gear, "Paramètres");
         ApplyTheme();
 
-        history = new(Path.Combine(DataDir, "historique.json"), settings.Max);
+        history = new(Path.Combine(DataDir, "historique.json"), settings.Max) { MaxDays = settings.MaxDays };
         history.Load();
+        TrimOld();
 
         search.TextChanged += (_, _) => Refresh_();
         search.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Down && list.Items.Count > 0) { list.Focus(); list.ClearSelected(); list.SetSelected(Math.Min(1, list.Items.Count - 1), true); e.Handled = true; }
-            if (e.KeyCode == Keys.Enter) { PasteSelected(); e.SuppressKeyPress = true; }
+            if (e.KeyCode == Keys.Enter) { PasteSelected(e.Shift); e.SuppressKeyPress = true; }
         };
         // Ctrl/Maj + clic = sélection multiple, pas de collage
         list.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && ModifierKeys == Keys.None && ItemAt(e.Location) >= 0) PasteSelected(); };
         list.KeyDown += (_, e) =>
         {
-            if (e.KeyCode == Keys.Enter) { PasteSelected(); e.SuppressKeyPress = true; }
+            if (e.KeyCode == Keys.Enter) { PasteSelected(e.Shift); e.SuppressKeyPress = true; }
             if (e.KeyCode == Keys.Delete) DeleteSelected();
+            if (e.KeyCode == Keys.F2) EditSelected();
         };
         list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = ItemAt(e.Location); if (i >= 0 && !list.GetSelected(i)) { list.ClearSelected(); list.SetSelected(i, true); } } };
         list.MeasureItem += (_, e) =>
@@ -137,7 +153,17 @@ public class MainForm : Form
         var itemMenu = new ContextMenuStrip();
         var openLink = new ToolStripMenuItem("Ouvrir dans le navigateur", null, (_, _) => OpenLink());
         itemMenu.Items.Add(openLink);
-        itemMenu.Opening += (_, _) => { HidePreview(); openLink.Visible = Selected is [{ Link: not null }]; };
+        var plain = new ToolStripMenuItem("Coller en texte brut (Maj+Entrée)", null, (_, _) => PasteSelected(true));
+        var edit = new ToolStripMenuItem("Modifier… (F2)", null, (_, _) => EditSelected());
+        itemMenu.Items.Add(plain);
+        itemMenu.Items.Add(edit);
+        itemMenu.Opening += (_, _) =>
+        {
+            HidePreview();
+            openLink.Visible = Selected is [{ Link: not null }];
+            plain.Visible = Selected.Any(x => x.Kind == Kind.Text);
+            edit.Visible = Selected is [{ Kind: Kind.Text }];
+        };
         itemMenu.Items.Add("Copier", null, (_, _) => CopySelected());
         itemMenu.Items.Add("Enregistrer sous…", null, (_, _) => SaveSelectedAs());
         itemMenu.Items.Add("Épingler / désépingler", null, (_, _) => TogglePin());
@@ -153,6 +179,10 @@ public class MainForm : Form
         tray.ContextMenuStrip = trayMenu;
         UpdateHotkeyText();
         // Clic sur l'icône : ouvre, ou referme si la fenêtre vient d'être cachée par ce même clic.
+        tray.BalloonTipClicked += (_, _) => { if (updateUrl != null) OpenUrl(updateUrl); };
+        updateTimer.Tick += (_, _) => _ = CheckUpdateAsync();
+        updateTimer.Start();
+        _ = CheckUpdateAsync();
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && (DateTime.Now - hiddenAt).TotalMilliseconds > 300) ShowWindow(fromTray: true); };
 
         Deactivate += (_, _) => { if (!inDialog) Hide(); };
@@ -186,8 +216,14 @@ public class MainForm : Form
     {
         bool dark = settings.IsDark;
         Color back = dark ? Color.FromArgb(32, 32, 32) : SystemColors.Window, fore = dark ? Color.FromArgb(230, 230, 230) : SystemColors.WindowText;
-        BackColor = list.BackColor = search.BackColor = gear.BackColor = gear.Parent!.BackColor = back;
+        BackColor = list.BackColor = search.BackColor = gear.BackColor = gear.Parent!.BackColor = filters.BackColor = back;
         ForeColor = list.ForeColor = search.ForeColor = gear.ForeColor = fore;
+        foreach (RadioButton rb in filters.Controls)
+        {
+            rb.ForeColor = fore;
+            rb.BackColor = back;
+            rb.FlatAppearance.CheckedBackColor = dark ? Color.FromArgb(70, 70, 70) : SystemColors.ControlLight;
+        }
         lineColor = dark ? Color.FromArgb(60, 60, 60) : SystemColors.ControlLight;
         linkColor = dark ? Color.LightSkyBlue : Color.RoyalBlue;
         if (IsHandleCreated) { DarkTitleBar(dark); list.Invalidate(); }
@@ -248,6 +284,8 @@ public class MainForm : Form
             settings.ShowMeta = r.ShowMeta;
             settings.OpenAtClock = r.OpenAtClock;
             settings.Theme = r.Theme;
+            settings.MaxDays = history.MaxDays = r.MaxDays;
+            settings.CheckUpdates = r.CheckUpdates;
             ApplyTheme();
             DeleteImages(history.Trim());
             try { settings.Save(SettingsFile); }
@@ -287,7 +325,7 @@ public class MainForm : Form
                 if (Clipboard.ContainsText())
                 {
                     var text = Clipboard.GetText();
-                    if (!string.IsNullOrWhiteSpace(text)) it = new Item { Kind = Kind.Text, Text = text, Key = text };
+                    if (!string.IsNullOrWhiteSpace(text)) it = new Item { Kind = Kind.Text, Text = text, Key = text, Rtf = Format(DataFormats.Rtf), Html = Format(DataFormats.Html) };
                 }
                 else if (settings.CaptureImages && Clipboard.ContainsImage())
                 {
@@ -301,6 +339,9 @@ public class MainForm : Form
             catch (ExternalException) { Thread.Sleep(50); }
         }
     }
+
+    // shortcut: mise en forme au-delà de 1 Mo ignorée (images intégrées), à revoir si besoin de gros documents.
+    static string? Format(string format) => Clipboard.GetData(format) is string s && s.Length <= 1_000_000 ? s : null;
 
     static Item SaveImage(Image img)
     {
@@ -332,9 +373,41 @@ public class MainForm : Form
 
     void OpenLink()
     {
-        if (Selected is not [{ Link: Uri u }]) return;
-        try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); Hide(); }
-        catch (Win32Exception ex) { tray.ShowBalloonTip(3000, "Presse-papiers", "Impossible d'ouvrir le lien : " + ex.Message, ToolTipIcon.Error); }
+        if (Selected is [{ Link: Uri u }] && OpenUrl(u.AbsoluteUri)) Hide();
+    }
+
+    bool OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return true; }
+        catch (Win32Exception ex) { tray.ShowBalloonTip(3000, "Presse-papiers", "Impossible d'ouvrir le lien : " + ex.Message, ToolTipIcon.Error); return false; }
+    }
+
+    const string ReleasesApi = "https://api.github.com/repos/poiscail/GestionnairePressePapiers/releases/latest";
+
+    // Demande à GitHub la dernière version publiée ; bulle cliquable si elle est plus récente. Silencieux en cas d'erreur réseau.
+    async Task CheckUpdateAsync()
+    {
+        if (!settings.CheckUpdates) return;
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("GestionnairePressePapiers");
+            using var doc = JsonDocument.Parse(await http.GetStringAsync(ReleasesApi));
+            var tag = doc.RootElement.GetProperty("tag_name").GetString();
+            if (!Release.IsNewer(tag, typeof(MainForm).Assembly.GetName().Version!)) return;
+            updateUrl = doc.RootElement.GetProperty("html_url").GetString();
+            tray.ShowBalloonTip(10000, "Presse-papiers", $"Nouvelle version {tag} disponible. Cliquez pour la télécharger.", ToolTipIcon.Info);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException) { }
+    }
+
+    // Efface les éléments trop vieux (paramètre « jours »).
+    void TrimOld()
+    {
+        var removed = history.Trim();
+        if (removed.Count == 0) return;
+        DeleteImages(removed);
+        try { history.Save(); } catch (IOException) { }
     }
 
     // Aperçu en grand d'une image survolée, à côté de la fenêtre.
@@ -440,6 +513,7 @@ public class MainForm : Form
             ? new Point(wa.Right - Width - 8, wa.Bottom - Height - 8)
             : new Point(Math.Clamp(cur.X, wa.Left, wa.Right - Width), Math.Clamp(cur.Y, wa.Top, wa.Bottom - Height));
         allowShow = true;
+        TrimOld();
         search.Text = "";
         Refresh_();
         Show();
@@ -460,11 +534,19 @@ public class MainForm : Form
         if (attached) AttachThreadInput(me, fgThread, false);
     }
 
-    bool CopyToClipboard(Item it)
+    // plain : texte seul, sans la mise en forme d'origine.
+    bool CopyToClipboard(Item it, bool plain = false)
     {
         try
         {
-            if (it.Kind == Kind.Text) Clipboard.SetText(it.Text);
+            if (it.Kind == Kind.Text)
+            {
+                var data = new DataObject();
+                data.SetText(it.Text, TextDataFormat.UnicodeText);
+                if (!plain && it.Rtf != null) data.SetData(DataFormats.Rtf, it.Rtf);
+                if (!plain && it.Html != null) data.SetData(DataFormats.Html, it.Html);
+                Clipboard.SetDataObject(data, true);
+            }
             else
             {
                 using var ms = new MemoryStream(File.ReadAllBytes(ImagePath(it)));
@@ -505,9 +587,9 @@ public class MainForm : Form
         finally { inDialog = false; Activate(); }
     }
 
-    async void PasteSelected()
+    async void PasteSelected(bool plain = false)
     {
-        if (!CopySelected()) return;
+        if (!CopySelected(plain)) return;
         Hide();
         if (!settings.PasteOnClick || previousWindow == IntPtr.Zero) return;
         SetForegroundWindow(previousWindow);
@@ -521,13 +603,44 @@ public class MainForm : Form
     List<Item> Selected => list.SelectedItems.Cast<Item>().ToList();
 
     // Un élément : copié tel quel. Plusieurs : les textes sont joints ligne par ligne (les images sont ignorées).
-    bool CopySelected()
+    bool CopySelected(bool plain = false)
     {
         var sel = Selected;
         if (sel.Count == 0) return false;
         var texts = sel.Where(x => x.Kind == Kind.Text).Select(x => x.Text).ToList();
-        if (sel.Count == 1 || texts.Count == 0) return CopyToClipboard(sel[0]);
+        if (sel.Count == 1 || texts.Count == 0) return CopyToClipboard(sel[0], plain);
         return CopyToClipboard(new Item { Kind = Kind.Text, Text = string.Join(Environment.NewLine, texts) });
+    }
+
+    // Modifier le texte d'un élément ; la mise en forme d'origine est perdue.
+    void EditSelected()
+    {
+        if (Selected is not [{ Kind: Kind.Text } it]) return;
+        HidePreview();
+        using var dlg = new Form
+        {
+            Text = "Modifier", Size = new Size(560, 380), StartPosition = FormStartPosition.CenterScreen, TopMost = true,
+            ShowInTaskbar = false, MinimizeBox = false, MaximizeBox = false, Font = Font,
+        };
+        var box = new TextBox { Multiline = true, AcceptsReturn = true, AcceptsTab = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill, Text = it.Text };
+        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new Button { Text = "Annuler", DialogResult = DialogResult.Cancel, AutoSize = true };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft };
+        buttons.Controls.AddRange(new Control[] { cancel, ok });
+        dlg.Controls.Add(box);
+        dlg.Controls.Add(buttons);
+        dlg.CancelButton = cancel; // pas d'AcceptButton : Entrée fait un retour à la ligne
+        SettingsForm.UseTheme(dlg, settings.IsDark);
+        inDialog = true;
+        try
+        {
+            if (dlg.ShowDialog(this) != DialogResult.OK || string.IsNullOrWhiteSpace(box.Text) || box.Text == it.Text) return;
+            history.Items.RemoveAll(x => x != it && x.Kind == Kind.Text && x.Key == box.Text);
+            it.Text = it.Key = box.Text;
+            it.Rtf = it.Html = null;
+            SaveAndRefresh();
+        }
+        finally { inDialog = false; if (Visible) Activate(); }
     }
 
     void TogglePin()
@@ -559,7 +672,9 @@ public class MainForm : Form
         var sel = Selected;
         list.BeginUpdate();
         list.Items.Clear();
-        foreach (var it in history.View(search.Text.Trim())) list.Items.Add(it);
+        foreach (var it in history.View(search.Text.Trim()))
+            if (filter switch { "Texte" => it.Kind == Kind.Text, "Images" => it.Kind == Kind.Image, "Liens" => it.Link != null, _ => true })
+                list.Items.Add(it);
         foreach (var it in sel) { int i = list.Items.IndexOf(it); if (i >= 0) list.SetSelected(i, true); }
         if (list.SelectedIndices.Count == 0 && list.Items.Count > 0) list.SetSelected(0, true);
         list.EndUpdate();

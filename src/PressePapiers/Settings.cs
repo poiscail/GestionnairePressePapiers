@@ -14,6 +14,9 @@ public class Settings
     public bool ShowMeta { get; set; } = true;
     public bool OpenAtClock { get; set; }
     public string Theme { get; set; } = "Système"; // Système, Clair ou Sombre
+    public int MaxDays { get; set; }  // 0 = jamais
+    public bool CheckUpdates { get; set; } = true;
+
 
     // Système : suit le réglage « mode des applications » de Windows.
     public bool IsDark => Theme switch
@@ -73,6 +76,8 @@ public class SettingsForm : Form
     readonly CheckBox preview = Box("Aperçu en grand des images au survol");
     readonly CheckBox meta = Box("Afficher l'heure et l'application sous chaque élément");
     readonly CheckBox clock = Box("Le raccourci ouvre la fenêtre près de l'horloge (sinon sous la souris)");
+    readonly CheckBox updates = Box("Prévenir quand une nouvelle version sort sur GitHub");
+    readonly NumericUpDown days = new() { Minimum = 0, Maximum = 3650, Width = 90, Margin = new Padding(3, 3, 3, 12) };
     readonly ComboBox theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, Margin = new Padding(3, 3, 3, 12) };
     Keys key;
 
@@ -83,7 +88,7 @@ public class SettingsForm : Form
     {
         Max = (int)max.Value, Hotkey = key, PasteOnClick = paste.Checked, CaptureImages = images.Checked,
         Preview = preview.Checked, ShowMeta = meta.Checked, OpenAtClock = clock.Checked,
-        Theme = (string)theme.SelectedItem!,
+        Theme = (string)theme.SelectedItem!, MaxDays = (int)days.Value, CheckUpdates = updates.Checked,
     };
 
     public SettingsForm(Settings s, bool startupOn)
@@ -104,7 +109,9 @@ public class SettingsForm : Form
         preview.Checked = s.Preview;
         meta.Checked = s.ShowMeta;
         clock.Checked = s.OpenAtClock;
-        clock.Margin = new Padding(3, 3, 3, 12);
+        updates.Checked = s.CheckUpdates;
+        updates.Margin = new Padding(3, 3, 3, 12);
+        days.Value = Math.Clamp(s.MaxDays, 0, 3650);
         theme.Items.AddRange(new object[] { "Système", "Clair", "Sombre" });
         theme.SelectedItem = theme.Items.Contains(s.Theme) ? s.Theme : "Système";
         max.Value = Math.Clamp(s.Max, 10, 5000);
@@ -129,9 +136,11 @@ public class SettingsForm : Form
         var root = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Padding = new Padding(12), WrapContents = false };
         root.Controls.AddRange(new Control[]
         {
-            startup, paste, images, preview, meta, clock,
+            startup, paste, images, preview, meta, clock, updates,
             new Label { Text = "Nombre d'éléments gardés (hors épinglés) :", AutoSize = true },
             max,
+            new Label { Text = "Effacer les éléments plus vieux que (jours, 0 = jamais, hors épinglés) :", AutoSize = true },
+            days,
             new Label { Text = "Raccourci pour ouvrir (cliquez puis appuyez sur les touches) :", AutoSize = true },
             hotkey,
             new Label { Text = "Thème :", AutoSize = true },
@@ -140,11 +149,15 @@ public class SettingsForm : Form
         });
         Controls.Add(root);
 
-        if (s.IsDark)
-        {
-            ApplyDark(this);
-            HandleCreated += (_, _) => Settings.DarkTitleBar(Handle, true);
-        }
+        UseTheme(this, s.IsDark);
+    }
+
+    // Applique le thème sombre à une boîte de dialogue (rien à faire en clair).
+    public static void UseTheme(Form f, bool dark)
+    {
+        if (!dark) return;
+        ApplyDark(f);
+        f.HandleCreated += (_, _) => Settings.DarkTitleBar(f.Handle, true);
     }
 
     // Mode sombre : fond foncé et texte clair sur tous les contrôles.

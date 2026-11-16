@@ -27,7 +27,9 @@ Pour le lancer au démarrage de Windows : bouton ⚙ de la fenêtre, case « Lan
 - L'outil tourne en arrière-plan avec une icône près de l'horloge.
 - `Ctrl+Maj+V` (ou clic sur l'icône) ouvre la fenêtre.
 - Tapez pour rechercher, `↓` pour descendre dans la liste.
-- Clic ou `Entrée` sur un élément : il est recollé dans l'application d'où vous venez.
+- Clic ou `Entrée` sur un élément : il est recollé dans l'application d'où vous venez, avec sa mise en forme (gras, couleurs…). `Maj+Entrée` (ou clic droit → « Coller en texte brut ») colle le texte seul.
+- Boutons Tout / Texte / Images / Liens sous la recherche pour filtrer la liste.
+- `F2` (ou clic droit → « Modifier… ») pour corriger un texte avant de le coller.
 - `Ctrl+A` sélectionne tous les éléments, `Ctrl`/`Maj` + clic en sélectionne plusieurs. Copier, épingler et supprimer agissent sur toute la sélection (les textes sont joints ligne par ligne).
 - Sous chaque élément : l'heure de la copie et l'application d'où il vient.
 - Survol : les images s'affichent en grand à côté de la fenêtre, les longs textes en entier dans une bulle.
@@ -37,7 +39,9 @@ Pour le lancer au démarrage de Windows : bouton ⚙ de la fenêtre, case « Lan
 - Les captures d'écran (`Impr. écran`, `Win+Maj+S`) sont enregistrées aussi, avec une miniature dans la liste.
 - `Échap` ferme la fenêtre. Clic droit sur l'icône : vider l'historique ou quitter.
 
-- Bouton ⚙ (ou clic droit sur l'icône → Paramètres) : lancement au démarrage, nombre d'éléments gardés, raccourci clavier (cliquez dans la case puis appuyez sur la combinaison), coller ou seulement copier au clic, enregistrer ou non les images, aperçu au survol, ligne heure/application, ouverture près de l'horloge, thème clair / sombre / système.
+- Bouton ⚙ (ou clic droit sur l'icône → Paramètres) : lancement au démarrage, nombre d'éléments gardés, raccourci clavier (cliquez dans la case puis appuyez sur la combinaison), coller ou seulement copier au clic, enregistrer ou non les images, aperçu au survol, ligne heure/application, ouverture près de l'horloge, thème clair / sombre / système, effacement des éléments plus vieux que X jours (hors épinglés), alerte de nouvelle version.
+
+- Quand une nouvelle version sort sur GitHub, une bulle s'affiche près de l'horloge : cliquez dessus pour la télécharger.
 
 L'historique (200 éléments par défaut, hors épinglés) et les paramètres (`parametres.json`) sont enregistrés dans `%APPDATA%\GestionnairePressePapiers`.
 

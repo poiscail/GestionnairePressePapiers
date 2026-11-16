@@ -322,8 +322,7 @@ public class MainForm : Form
         var size = new Size(Math.Max(1, (int)(img.Width * s)) + 2, Math.Max(1, (int)(img.Height * s)) + 2);
         int x = Right + 8 + size.Width <= wa.Right ? Right + 8 : Math.Max(wa.Left, Left - 8 - size.Width);
         int y = Math.Clamp(Cursor.Position.Y - size.Height / 2, wa.Top, Math.Max(wa.Top, wa.Bottom - size.Height));
-        preview.Box.Image?.Dispose();
-        preview.Box.Image = img;
+        preview.Image = img;
         previewKey = it.Key;
         // Affichage Win32 sans activation : Show() de WinForms vole le focus et la fenêtre principale se cacherait.
         SetWindowPos(preview.Handle, new IntPtr(-1), x, y, size.Width, size.Height, 0x0010 | 0x0040); // HWND_TOPMOST, SWP_NOACTIVATE | SWP_SHOWWINDOW
@@ -334,14 +333,15 @@ public class MainForm : Form
         if (previewKey == null) return;
         previewKey = null;
         ShowWindow(preview.Handle, 0); // SW_HIDE
-        preview.Box.Image?.Dispose();
-        preview.Box.Image = null;
+        preview.Image = null;
     }
 
     // Fenêtre sans bordure qui ne prend jamais le focus (sinon la fenêtre principale se cacherait).
     sealed class PreviewForm : Form
     {
-        public readonly PictureBox Box = new() { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = SystemColors.Window };
+        Image? image;
+        // Dessin direct (pas de PictureBox : la fenêtre est montrée en Win32, ses contrôles enfants resteraient cachés).
+        public Image? Image { get => image; set { image?.Dispose(); image = value; Invalidate(); } }
         public PreviewForm()
         {
             FormBorderStyle = FormBorderStyle.None;
@@ -349,9 +349,16 @@ public class MainForm : Form
             StartPosition = FormStartPosition.Manual;
             Padding = new Padding(1);
             BackColor = SystemColors.ControlDark;
-            Controls.Add(Box);
+            DoubleBuffered = true;
         }
         protected override bool ShowWithoutActivation => true;
+        protected override void OnResize(EventArgs e) { base.OnResize(e); Invalidate(); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            if (image == null) return;
+            e.Graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            e.Graphics.DrawImage(image, 1, 1, ClientSize.Width - 2, ClientSize.Height - 2);
+        }
         protected override void WndProc(ref Message m)
         {
             if (m.Msg == 0x21) { m.Result = new IntPtr(3); return; } // WM_MOUSEACTIVATE -> MA_NOACTIVATE

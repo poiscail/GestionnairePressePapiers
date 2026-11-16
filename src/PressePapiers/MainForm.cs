@@ -74,13 +74,13 @@ public class MainForm : Form
             if (e.KeyCode == Keys.Enter) { PasteSelected(); e.SuppressKeyPress = true; }
         };
         // Ctrl/Maj + clic = sélection multiple, pas de collage
-        list.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && ModifierKeys == Keys.None && list.IndexFromPoint(e.Location) >= 0) PasteSelected(); };
+        list.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && ModifierKeys == Keys.None && ItemAt(e.Location) >= 0) PasteSelected(); };
         list.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Enter) { PasteSelected(); e.SuppressKeyPress = true; }
             if (e.KeyCode == Keys.Delete) DeleteSelected();
         };
-        list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = list.IndexFromPoint(e.Location); if (i >= 0 && !list.GetSelected(i)) { list.ClearSelected(); list.SetSelected(i, true); } } };
+        list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = ItemAt(e.Location); if (i >= 0 && !list.GetSelected(i)) { list.ClearSelected(); list.SetSelected(i, true); } } };
         list.MeasureItem += (_, e) =>
             e.ItemHeight = (list.Items[e.Index] is Item { Kind: Kind.Image } ? ThumbHeight + 18 : list.Font.Height + 14) + small.Height;
         list.DrawItem += (_, e) =>
@@ -115,7 +115,7 @@ public class MainForm : Form
         };
         list.MouseMove += (_, e) =>
         {
-            int i = list.IndexFromPoint(e.Location);
+            int i = ItemAt(e.Location);
             var it = i >= 0 ? (Item)list.Items[i] : null;
             var t = it?.Kind == Kind.Text ? it.Text : "";
             if (t.Length > 3000) t = t[..3000] + "…";
@@ -465,6 +465,9 @@ public class MainForm : Form
         await Task.Delay(80); // laisse la fenêtre cible reprendre le focus avant Ctrl+V
         SendKeys.SendWait("^v");
     }
+
+    // IndexFromPoint peut renvoyer 65535 (liste vide, zone sans élément) : -1 dans ce cas.
+    int ItemAt(Point p) { int i = list.IndexFromPoint(p); return i >= 0 && i < list.Items.Count ? i : -1; }
 
     List<Item> Selected => list.SelectedItems.Cast<Item>().ToList();
 

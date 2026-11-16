@@ -12,6 +12,15 @@ public class Settings
     public bool Preview { get; set; } = true;
     public bool ShowMeta { get; set; } = true;
     public bool OpenAtClock { get; set; }
+    public string Theme { get; set; } = "Système"; // Système, Clair ou Sombre
+
+    // Système : suit le réglage « mode des applications » de Windows.
+    public bool IsDark => Theme switch
+    {
+        "Sombre" => true,
+        "Clair" => false,
+        _ => Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")?.GetValue("AppsUseLightTheme") is 0,
+    };
 
     public static Settings Load(string file)
     {
@@ -58,6 +67,7 @@ public class SettingsForm : Form
     readonly CheckBox preview = Box("Aperçu en grand des images au survol");
     readonly CheckBox meta = Box("Afficher l'heure et l'application sous chaque élément");
     readonly CheckBox clock = Box("Le raccourci ouvre la fenêtre près de l'horloge (sinon sous la souris)");
+    readonly ComboBox theme = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140, Margin = new Padding(3, 3, 3, 12) };
     Keys key;
 
     static CheckBox Box(string text) => new() { Text = text, AutoSize = true };
@@ -67,6 +77,7 @@ public class SettingsForm : Form
     {
         Max = (int)max.Value, Hotkey = key, PasteOnClick = paste.Checked, CaptureImages = images.Checked,
         Preview = preview.Checked, ShowMeta = meta.Checked, OpenAtClock = clock.Checked,
+        Theme = (string)theme.SelectedItem!,
     };
 
     public SettingsForm(Settings s, bool startupOn)
@@ -88,6 +99,8 @@ public class SettingsForm : Form
         meta.Checked = s.ShowMeta;
         clock.Checked = s.OpenAtClock;
         clock.Margin = new Padding(3, 3, 3, 12);
+        theme.Items.AddRange(new object[] { "Système", "Clair", "Sombre" });
+        theme.SelectedItem = theme.Items.Contains(s.Theme) ? s.Theme : "Système";
         max.Value = Math.Clamp(s.Max, 10, 5000);
         key = s.Hotkey;
         hotkey.Text = Settings.HotkeyText(key);
@@ -115,6 +128,8 @@ public class SettingsForm : Form
             max,
             new Label { Text = "Raccourci pour ouvrir (cliquez puis appuyez sur les touches) :", AutoSize = true },
             hotkey,
+            new Label { Text = "Thème :", AutoSize = true },
+            theme,
             buttons,
         });
         Controls.Add(root);

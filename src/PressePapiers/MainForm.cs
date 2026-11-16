@@ -21,7 +21,7 @@ public class MainForm : Form
 
     readonly History history = new(Path.Combine(DataDir, "historique.json"));
     readonly TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "Rechercher…" };
-    readonly ListBox list = new() { Dock = DockStyle.Fill, IntegralHeight = false, BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawVariable };
+    readonly ListBox list = new() { Dock = DockStyle.Fill, IntegralHeight = false, BorderStyle = BorderStyle.None, SelectionMode = SelectionMode.MultiExtended, DrawMode = DrawMode.OwnerDrawVariable };
     const int ThumbHeight = 90;
     readonly Dictionary<string, Image?> thumbs = new();
     readonly NotifyIcon tray = new() { Text = "Presse-papiers (Ctrl+Maj+V)", Icon = AppIcon, Visible = true };
@@ -49,16 +49,17 @@ public class MainForm : Form
         search.TextChanged += (_, _) => Refresh_();
         search.KeyDown += (_, e) =>
         {
-            if (e.KeyCode == Keys.Down && list.Items.Count > 0) { list.Focus(); list.SelectedIndex = Math.Min(1, list.Items.Count - 1); e.Handled = true; }
+            if (e.KeyCode == Keys.Down && list.Items.Count > 0) { list.Focus(); list.ClearSelected(); list.SetSelected(Math.Min(1, list.Items.Count - 1), true); e.Handled = true; }
             if (e.KeyCode == Keys.Enter) { PasteSelected(); e.SuppressKeyPress = true; }
         };
-        list.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && list.IndexFromPoint(e.Location) >= 0) PasteSelected(); };
+        // Ctrl/Maj + clic = sélection multiple, pas de collage
+        list.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left && ModifierKeys == Keys.None && list.IndexFromPoint(e.Location) >= 0) PasteSelected(); };
         list.KeyDown += (_, e) =>
         {
             if (e.KeyCode == Keys.Enter) { PasteSelected(); e.SuppressKeyPress = true; }
             if (e.KeyCode == Keys.Delete) DeleteSelected();
         };
-        list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = list.IndexFromPoint(e.Location); if (i >= 0) list.SelectedIndex = i; } };
+        list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = list.IndexFromPoint(e.Location); if (i >= 0 && !list.GetSelected(i)) { list.ClearSelected(); list.SetSelected(i, true); } } };
         list.MeasureItem += (_, e) =>
             e.ItemHeight = list.Items[e.Index] is Item { Kind: Kind.Image } ? ThumbHeight + 14 : list.Font.Height + 14;
         list.DrawItem += (_, e) =>
@@ -90,7 +91,7 @@ public class MainForm : Form
         };
 
         var itemMenu = new ContextMenuStrip();
-        itemMenu.Items.Add("Copier", null, (_, _) => { if (list.SelectedItem is Item it) CopyToClipboard(it); });
+        itemMenu.Items.Add("Copier", null, (_, _) => CopySelected());
         itemMenu.Items.Add("Enregistrer sous…", null, (_, _) => SaveSelectedAs());
         itemMenu.Items.Add("Épingler / désépingler", null, (_, _) => TogglePin());
         itemMenu.Items.Add("Supprimer", null, (_, _) => DeleteSelected());
@@ -105,7 +106,19 @@ public class MainForm : Form
 
         Deactivate += (_, _) => { if (!inDialog) Hide(); };
         FormClosing += (_, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
-        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Hide(); };
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape) Hide();
+            // Ctrl+A : tous les éléments (dans la recherche, seulement si elle est vide, sinon sélection du texte)
+            if (e.KeyData == (Keys.Control | Keys.A) && (list.Focused || search.Text.Length == 0))
+            {
+                list.BeginUpdate();
+                for (int i = 0; i < list.Items.Count; i++) list.SetSelected(i, true);
+                list.EndUpdate();
+                list.Focus();
+                e.SuppressKeyPress = true;
+            }
+        };
         Refresh_();
     }
 
@@ -263,7 +276,7 @@ public class MainForm : Form
 
     async void PasteSelected()
     {
-        if (list.SelectedItem is not Item it || !CopyToClipboard(it)) return;
+        if (!CopySelected()) return;
         Hide();
         if (previousWindow == IntPtr.Zero) return;
         SetForegroundWindow(previousWindow);
@@ -271,18 +284,32 @@ public class MainForm : Form
         SendKeys.SendWait("^v");
     }
 
+    List<Item> Selected => list.SelectedItems.Cast<Item>().ToList();
+
+    // Un élément : copié tel quel. Plusieurs : les textes sont joints ligne par ligne (les images sont ignorées).
+    bool CopySelected()
+    {
+        var sel = Selected;
+        if (sel.Count == 0) return false;
+        var texts = sel.Where(x => x.Kind == Kind.Text).Select(x => x.Text).ToList();
+        if (sel.Count == 1 || texts.Count == 0) return CopyToClipboard(sel[0]);
+        return CopyToClipboard(new Item { Kind = Kind.Text, Text = string.Join(Environment.NewLine, texts) });
+    }
+
     void TogglePin()
     {
-        if (list.SelectedItem is not Item it) return;
-        it.Pinned = !it.Pinned;
+        var sel = Selected;
+        bool pin = sel.Any(x => !x.Pinned);
+        foreach (var it in sel) it.Pinned = pin;
         SaveAndRefresh();
     }
 
     void DeleteSelected()
     {
-        if (list.SelectedItem is not Item it) return;
-        history.Items.Remove(it);
-        DeleteImages(new[] { it });
+        var sel = Selected;
+        if (sel.Count == 0) return;
+        foreach (var it in sel) history.Items.Remove(it);
+        DeleteImages(sel);
         SaveAndRefresh();
     }
 
@@ -295,12 +322,12 @@ public class MainForm : Form
 
     void Refresh_()
     {
-        var sel = list.SelectedItem;
+        var sel = Selected;
         list.BeginUpdate();
         list.Items.Clear();
         foreach (var it in history.View(search.Text.Trim())) list.Items.Add(it);
-        if (sel != null && list.Items.Contains(sel)) list.SelectedItem = sel;
-        else if (list.Items.Count > 0) list.SelectedIndex = 0;
+        foreach (var it in sel) { int i = list.Items.IndexOf(it); if (i >= 0) list.SetSelected(i, true); }
+        if (list.SelectedIndices.Count == 0 && list.Items.Count > 0) list.SetSelected(0, true);
         list.EndUpdate();
     }
 }

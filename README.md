@@ -20,6 +20,7 @@ Pour le lancer au démarrage de Windows : `Win+R`, tapez `shell:startup`, et met
 - `Ctrl+Maj+V` (ou clic sur l'icône) ouvre la fenêtre.
 - Tapez pour rechercher, `↓` pour descendre dans la liste.
 - Clic ou `Entrée` sur un élément : il est recollé dans l'application d'où vous venez.
+- `Ctrl+A` sélectionne tous les éléments, `Ctrl`/`Maj` + clic en sélectionne plusieurs. Copier, épingler et supprimer agissent sur toute la sélection (les textes sont joints ligne par ligne).
 - Clic droit sur un élément : copier, enregistrer sous (`.png` ou `.txt`), épingler / désépingler, supprimer. `Suppr` supprime aussi.
 - Les éléments épinglés restent en haut et ne sont jamais effacés automatiquement.
 - Les captures d'écran (`Impr. écran`, `Win+Maj+S`) sont enregistrées aussi, avec une miniature dans la liste.

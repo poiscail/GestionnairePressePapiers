@@ -29,7 +29,7 @@ Pour le lancer au démarrage de Windows : bouton ⚙ de la fenêtre, case « Lan
 - Les captures d'écran (`Impr. écran`, `Win+Maj+S`) sont enregistrées aussi, avec une miniature dans la liste.
 - `Échap` ferme la fenêtre. Clic droit sur l'icône : vider l'historique ou quitter.
 
-- Bouton ⚙ (ou clic droit sur l'icône → Paramètres) : lancement au démarrage, nombre d'éléments gardés, raccourci clavier (cliquez dans la case puis appuyez sur la combinaison).
+- Bouton ⚙ (ou clic droit sur l'icône → Paramètres) : lancement au démarrage, nombre d'éléments gardés, raccourci clavier (cliquez dans la case puis appuyez sur la combinaison), coller ou seulement copier au clic, enregistrer ou non les images, aperçu au survol, ligne heure/application, ouverture près de l'horloge.
 
 L'historique (200 éléments par défaut, hors épinglés) et les paramètres (`parametres.json`) sont enregistrés dans `%APPDATA%\GestionnairePressePapiers`.
 

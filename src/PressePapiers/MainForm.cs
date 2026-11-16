@@ -85,7 +85,7 @@ public class MainForm : Form
         };
         list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = ItemAt(e.Location); if (i >= 0 && !list.GetSelected(i)) { list.ClearSelected(); list.SetSelected(i, true); } } };
         list.MeasureItem += (_, e) =>
-            e.ItemHeight = (list.Items[e.Index] is Item { Kind: Kind.Image } ? ThumbHeight + 18 : list.Font.Height + 14) + small.Height;
+            e.ItemHeight = (list.Items[e.Index] is Item { Kind: Kind.Image } ? ThumbHeight + 18 : list.Font.Height + 14) + (settings.ShowMeta ? small.Height : 0);
         list.DrawItem += (_, e) =>
         {
             if (e.Index < 0) return;
@@ -110,9 +110,12 @@ public class MainForm : Form
                 metaY = b.Y + 5 + list.Font.Height;
             }
             // Petite ligne grise : heure de la copie et application d'où elle vient
-            var when = it.Time.Date == DateTime.Today ? it.Time.ToString("HH:mm") : it.Time.ToString("dd/MM HH:mm");
-            TextRenderer.DrawText(e.Graphics, it.Source.Length > 0 ? $"{when} · {it.Source}" : when, small, new Rectangle(b.X + 8, metaY, b.Width - 16, small.Height),
-                selected ? SystemColors.HighlightText : SystemColors.GrayText, flags);
+            if (settings.ShowMeta)
+            {
+                var when = it.Time.Date == DateTime.Today ? it.Time.ToString("HH:mm") : it.Time.ToString("dd/MM HH:mm");
+                TextRenderer.DrawText(e.Graphics, it.Source.Length > 0 ? $"{when} · {it.Source}" : when, small, new Rectangle(b.X + 8, metaY, b.Width - 16, small.Height),
+                    selected ? SystemColors.HighlightText : SystemColors.GrayText, flags);
+            }
             // Ligne de séparation entre éléments
             e.Graphics.DrawLine(SystemPens.ControlLight, b.X + 4, b.Bottom - 1, b.Right - 4, b.Bottom - 1);
         };
@@ -221,6 +224,11 @@ public class MainForm : Form
                 }
             }
             settings.Max = history.Max = r.Max;
+            settings.PasteOnClick = r.PasteOnClick;
+            settings.CaptureImages = r.CaptureImages;
+            settings.Preview = r.Preview;
+            settings.ShowMeta = r.ShowMeta;
+            settings.OpenAtClock = r.OpenAtClock;
             DeleteImages(history.Trim());
             try { settings.Save(SettingsFile); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -261,7 +269,7 @@ public class MainForm : Form
                     var text = Clipboard.GetText();
                     if (!string.IsNullOrWhiteSpace(text)) it = new Item { Kind = Kind.Text, Text = text, Key = text };
                 }
-                else if (Clipboard.ContainsImage())
+                else if (settings.CaptureImages && Clipboard.ContainsImage())
                 {
                     using var img = Clipboard.GetImage();
                     if (img != null) it = SaveImage(img);
@@ -312,7 +320,7 @@ public class MainForm : Form
     // Aperçu en grand d'une image survolée, à côté de la fenêtre.
     void ShowPreview(Item? it)
     {
-        if (it?.Kind != Kind.Image) { HidePreview(); return; }
+        if (it?.Kind != Kind.Image || !settings.Preview) { HidePreview(); return; }
         if (previewKey == it.Key) return;
         Bitmap img;
         try
@@ -408,7 +416,7 @@ public class MainForm : Form
         var cur = Cursor.Position;
         var wa = Screen.FromPoint(cur).WorkingArea;
         // Depuis l'icône : en bas à droite, au-dessus de l'horloge. Sinon : sous la souris.
-        Location = fromTray
+        Location = fromTray || settings.OpenAtClock
             ? new Point(wa.Right - Width - 8, wa.Bottom - Height - 8)
             : new Point(Math.Clamp(cur.X, wa.Left, wa.Right - Width), Math.Clamp(cur.Y, wa.Top, wa.Bottom - Height));
         allowShow = true;
@@ -481,7 +489,7 @@ public class MainForm : Form
     {
         if (!CopySelected()) return;
         Hide();
-        if (previousWindow == IntPtr.Zero) return;
+        if (!settings.PasteOnClick || previousWindow == IntPtr.Zero) return;
         SetForegroundWindow(previousWindow);
         await Task.Delay(80); // laisse la fenêtre cible reprendre le focus avant Ctrl+V
         SendKeys.SendWait("^v");

@@ -7,6 +7,11 @@ public class Settings
 {
     public int Max { get; set; } = 200;
     public Keys Hotkey { get; set; } = Keys.Control | Keys.Shift | Keys.V;
+    public bool PasteOnClick { get; set; } = true;
+    public bool CaptureImages { get; set; } = true;
+    public bool Preview { get; set; } = true;
+    public bool ShowMeta { get; set; } = true;
+    public bool OpenAtClock { get; set; }
 
     public static Settings Load(string file)
     {
@@ -48,10 +53,21 @@ public class SettingsForm : Form
     readonly CheckBox startup = new() { Text = "Lancer au démarrage de Windows", AutoSize = true, Margin = new Padding(3, 3, 3, 12) };
     readonly NumericUpDown max = new() { Minimum = 10, Maximum = 5000, Increment = 50, Width = 90, Margin = new Padding(3, 3, 3, 12) };
     readonly TextBox hotkey = new() { ReadOnly = true, Width = 180, Margin = new Padding(3, 3, 3, 12) };
+    readonly CheckBox paste = Box("Clic / Entrée colle dans l'application (sinon copie seulement)");
+    readonly CheckBox images = Box("Enregistrer aussi les images");
+    readonly CheckBox preview = Box("Aperçu en grand des images au survol");
+    readonly CheckBox meta = Box("Afficher l'heure et l'application sous chaque élément");
+    readonly CheckBox clock = Box("Le raccourci ouvre la fenêtre près de l'horloge (sinon sous la souris)");
     Keys key;
 
+    static CheckBox Box(string text) => new() { Text = text, AutoSize = true };
+
     public bool StartupChecked => startup.Checked;
-    public Settings Result => new() { Max = (int)max.Value, Hotkey = key };
+    public Settings Result => new()
+    {
+        Max = (int)max.Value, Hotkey = key, PasteOnClick = paste.Checked, CaptureImages = images.Checked,
+        Preview = preview.Checked, ShowMeta = meta.Checked, OpenAtClock = clock.Checked,
+    };
 
     public SettingsForm(Settings s, bool startupOn)
     {
@@ -66,6 +82,12 @@ public class SettingsForm : Form
         Font = new Font("Segoe UI", 10);
 
         startup.Checked = startupOn;
+        paste.Checked = s.PasteOnClick;
+        images.Checked = s.CaptureImages;
+        preview.Checked = s.Preview;
+        meta.Checked = s.ShowMeta;
+        clock.Checked = s.OpenAtClock;
+        clock.Margin = new Padding(3, 3, 3, 12);
         max.Value = Math.Clamp(s.Max, 10, 5000);
         key = s.Hotkey;
         hotkey.Text = Settings.HotkeyText(key);
@@ -88,7 +110,7 @@ public class SettingsForm : Form
         var root = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Padding = new Padding(12), WrapContents = false };
         root.Controls.AddRange(new Control[]
         {
-            startup,
+            startup, paste, images, preview, meta, clock,
             new Label { Text = "Nombre d'éléments gardés (hors épinglés) :", AutoSize = true },
             max,
             new Label { Text = "Raccourci pour ouvrir (cliquez puis appuyez sur les touches) :", AutoSize = true },

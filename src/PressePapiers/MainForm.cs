@@ -21,8 +21,11 @@ public class MainForm : Form
 
     readonly History history = new(Path.Combine(DataDir, "historique.json"));
     readonly TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "Rechercher…" };
-    readonly ListBox list = new() { Dock = DockStyle.Fill, IntegralHeight = false, BorderStyle = BorderStyle.None };
-    readonly NotifyIcon tray = new() { Text = "Presse-papiers (Ctrl+Maj+V)", Icon = SystemIcons.Application, Visible = true };
+    readonly ListBox list = new() { Dock = DockStyle.Fill, IntegralHeight = false, BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawVariable };
+    const int ThumbHeight = 90;
+    readonly Dictionary<string, Image?> thumbs = new();
+    readonly NotifyIcon tray = new() { Text = "Presse-papiers (Ctrl+Maj+V)", Icon = AppIcon, Visible = true };
+    static readonly Icon AppIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
     readonly ToolTip tip = new();
     bool allowShow;
     IntPtr previousWindow;
@@ -30,6 +33,7 @@ public class MainForm : Form
     public MainForm()
     {
         Text = "Presse-papiers";
+        Icon = AppIcon;
         Size = new Size(420, 480);
         StartPosition = FormStartPosition.Manual;
         FormBorderStyle = FormBorderStyle.SizableToolWindow;
@@ -55,6 +59,28 @@ public class MainForm : Form
             if (e.KeyCode == Keys.Delete) DeleteSelected();
         };
         list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = list.IndexFromPoint(e.Location); if (i >= 0) list.SelectedIndex = i; } };
+        list.MeasureItem += (_, e) =>
+            e.ItemHeight = list.Items[e.Index] is Item { Kind: Kind.Image } ? ThumbHeight + 14 : list.Font.Height + 14;
+        list.DrawItem += (_, e) =>
+        {
+            if (e.Index < 0) return;
+            e.DrawBackground();
+            var it = (Item)list.Items[e.Index];
+            var color = (e.State & DrawItemState.Selected) != 0 ? SystemColors.HighlightText : list.ForeColor;
+            var b = e.Bounds;
+            if (it.Kind == Kind.Image && Thumb(it) is Image t)
+            {
+                int x = b.X + 4;
+                if (it.Pinned) { TextRenderer.DrawText(e.Graphics, "📌", list.Font, new Point(x, b.Y + 4), color); x += 26; }
+                e.Graphics.DrawImage(t, x, b.Y + 7, t.Width, t.Height);
+                e.Graphics.DrawRectangle(SystemPens.ControlDark, x, b.Y + 7, t.Width - 1, t.Height - 1);
+            }
+            else
+                TextRenderer.DrawText(e.Graphics, it.ToString(), list.Font, new Rectangle(b.X + 8, b.Y, b.Width - 16, b.Height), color,
+                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            // Ligne de séparation entre éléments
+            e.Graphics.DrawLine(SystemPens.ControlLight, b.X + 4, b.Bottom - 1, b.Right - 4, b.Bottom - 1);
+        };
         list.MouseMove += (_, e) =>
         {
             int i = list.IndexFromPoint(e.Location);
@@ -147,10 +173,30 @@ public class MainForm : Form
         return new Item { Kind = Kind.Image, Text = $"Image {img.Width}×{img.Height}", Key = hash };
     }
 
-    static void DeleteImages(IEnumerable<Item> removed)
+    static string ImagePath(Item it) => Path.Combine(ImageDir, it.Key + ".png");
+
+    // Miniature mise en cache ; null si le fichier image est absent ou illisible.
+    Image? Thumb(Item it)
+    {
+        if (thumbs.TryGetValue(it.Key, out var t)) return t;
+        try
+        {
+            using var ms = new MemoryStream(File.ReadAllBytes(ImagePath(it)));
+            using var img = Image.FromStream(ms);
+            double s = Math.Min(1.0, Math.Min(ThumbHeight / (double)img.Height, (list.ClientSize.Width - 40) / (double)img.Width));
+            t = new Bitmap(img, Math.Max(1, (int)(img.Width * s)), Math.Max(1, (int)(img.Height * s)));
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException) { t = null; }
+        return thumbs[it.Key] = t;
+    }
+
+    void DeleteImages(IEnumerable<Item> removed)
     {
         foreach (var it in removed.Where(x => x.Kind == Kind.Image))
-            try { File.Delete(Path.Combine(ImageDir, it.Key + ".png")); } catch (IOException) { }
+        {
+            if (thumbs.Remove(it.Key, out var t)) t?.Dispose();
+            try { File.Delete(ImagePath(it)); } catch (IOException) { }
+        }
     }
 
     void ShowWindow()
@@ -176,7 +222,7 @@ public class MainForm : Form
             if (it.Kind == Kind.Text) Clipboard.SetText(it.Text);
             else
             {
-                using var ms = new MemoryStream(File.ReadAllBytes(Path.Combine(ImageDir, it.Key + ".png")));
+                using var ms = new MemoryStream(File.ReadAllBytes(ImagePath(it)));
                 using var img = Image.FromStream(ms);
                 Clipboard.SetImage(img);
             }

@@ -6,15 +6,15 @@
     "semantic_hash": ""
   },
   "src/PressePapiers/MainForm.cs": {
-    "mtime": 1794856992.6413016,
-    "seen": 1794857141.7973568,
-    "ast_hash": "c8f425db957efbd416d348387a95890a",
+    "mtime": 1794857656.0719297,
+    "seen": 1794857704.933026,
+    "ast_hash": "000a6d8f9b2ca0e97d93072193d539ba",
     "semantic_hash": ""
   },
   "src/PressePapiers/PressePapiers.csproj": {
-    "mtime": 1794856916.211141,
-    "seen": 1794857141.7973568,
-    "ast_hash": "4f6ac05bac8b7bfcdb325ee3ed02f2bd",
+    "mtime": 1794857642.915635,
+    "seen": 1794857704.933026,
+    "ast_hash": "3d064bddb854f8692ab676f6f94ec314",
     "semantic_hash": ""
   },
   "src/PressePapiers/Program.cs": {
@@ -36,9 +36,15 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1794857130.0909252,
-    "seen": 1794857141.7973568,
-    "ast_hash": "3cad8024f4567cbc6233f0cc0a4e75b3",
+    "mtime": 1794857699.480049,
+    "seen": 1794857704.933026,
+    "ast_hash": "783403150b368ab4d8533838aa91caf9",
+    "semantic_hash": ""
+  },
+  "tools/make_icon.ps1": {
+    "mtime": 1794857636.2268505,
+    "seen": 1794857704.933026,
+    "ast_hash": "c8f723e96f325b745474ceb6e68154d5",
     "semantic_hash": ""
   }
 }

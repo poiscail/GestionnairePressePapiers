@@ -22,9 +22,12 @@ Pour le lancer au démarrage de Windows : `Win+R`, tapez `shell:startup`, et met
 - Clic ou `Entrée` sur un élément : il est recollé dans l'application d'où vous venez.
 - Clic droit : épingler / désépingler, supprimer. `Suppr` supprime aussi.
 - Les éléments épinglés restent en haut et ne sont jamais effacés automatiquement.
+- Les captures d'écran (`Impr. écran`, `Win+Maj+S`) sont enregistrées aussi, avec une miniature dans la liste.
 - `Échap` ferme la fenêtre. Clic droit sur l'icône : vider l'historique ou quitter.
 
 L'historique (200 éléments max, hors épinglés) est enregistré dans `%APPDATA%\GestionnairePressePapiers`.
+
+L'icône (`src/PressePapiers/app.ico`) se régénère avec `powershell -File tools/make_icon.ps1`.
 
 ## Tests
 

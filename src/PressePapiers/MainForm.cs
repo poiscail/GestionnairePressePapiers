@@ -1,4 +1,6 @@
-﻿using System.Drawing.Imaging;
+﻿using System.ComponentModel;
+using System.Diagnostics;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 
@@ -12,21 +14,30 @@ public class MainForm : Form
     [DllImport("user32.dll")] static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr GetClipboardOwner();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 
     const int WM_CLIPBOARDUPDATE = 0x031D, WM_HOTKEY = 0x0312, HOTKEY_ID = 1;
-    const uint MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_NOREPEAT = 0x4000, VK_V = 0x56;
+    const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_NOREPEAT = 0x4000;
 
     static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GestionnairePressePapiers");
     static readonly string ImageDir = Path.Combine(DataDir, "images");
+    static readonly string SettingsFile = Path.Combine(DataDir, "parametres.json");
 
-    readonly History history = new(Path.Combine(DataDir, "historique.json"));
-    readonly TextBox search = new() { Dock = DockStyle.Top, PlaceholderText = "Rechercher…" };
+    readonly Settings settings = Settings.Load(SettingsFile);
+    readonly History history;
+    readonly TextBox search = new() { Dock = DockStyle.Fill, PlaceholderText = "Rechercher…" };
+    readonly Button gear = new() { Text = "⚙", Dock = DockStyle.Right, Width = 34, FlatStyle = FlatStyle.Flat, TabStop = false };
+    readonly Font small = new("Segoe UI", 8);
+    readonly PreviewForm preview = new();
+    string? previewKey;
+    readonly ToolStripMenuItem trayOpen = new();
     readonly ListBox list = new() { Dock = DockStyle.Fill, IntegralHeight = false, BorderStyle = BorderStyle.None, SelectionMode = SelectionMode.MultiExtended, DrawMode = DrawMode.OwnerDrawVariable };
     const int ThumbHeight = 90;
     readonly Dictionary<string, Image?> thumbs = new();
-    readonly NotifyIcon tray = new() { Text = "Presse-papiers (Ctrl+Maj+V)", Icon = AppIcon, Visible = true };
+    readonly NotifyIcon tray = new() { Icon = AppIcon, Visible = true };
     static readonly Icon AppIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
-    readonly ToolTip tip = new();
+    readonly ToolTip tip = new() { AutoPopDelay = 30000 };
     bool allowShow, inDialog;
     IntPtr previousWindow;
 
@@ -41,9 +52,17 @@ public class MainForm : Form
         ShowInTaskbar = false;
         KeyPreview = true;
         Font = new Font("Segoe UI", 10);
+        var top = new Panel { Dock = DockStyle.Top };
+        top.Controls.Add(search);
+        top.Controls.Add(gear);
         Controls.Add(list);
-        Controls.Add(search);
+        Controls.Add(top);
+        top.Height = search.PreferredHeight;
+        gear.FlatAppearance.BorderSize = 0;
+        gear.Click += (_, _) => OpenSettings();
+        tip.SetToolTip(gear, "Paramètres");
 
+        history = new(Path.Combine(DataDir, "historique.json"), settings.Max);
         history.Load();
 
         search.TextChanged += (_, _) => Refresh_();
@@ -61,36 +80,53 @@ public class MainForm : Form
         };
         list.MouseDown += (_, e) => { if (e.Button == MouseButtons.Right) { int i = list.IndexFromPoint(e.Location); if (i >= 0 && !list.GetSelected(i)) { list.ClearSelected(); list.SetSelected(i, true); } } };
         list.MeasureItem += (_, e) =>
-            e.ItemHeight = list.Items[e.Index] is Item { Kind: Kind.Image } ? ThumbHeight + 14 : list.Font.Height + 14;
+            e.ItemHeight = (list.Items[e.Index] is Item { Kind: Kind.Image } ? ThumbHeight + 18 : list.Font.Height + 14) + small.Height;
         list.DrawItem += (_, e) =>
         {
             if (e.Index < 0) return;
             e.DrawBackground();
             var it = (Item)list.Items[e.Index];
-            var color = (e.State & DrawItemState.Selected) != 0 ? SystemColors.HighlightText : list.ForeColor;
+            bool selected = (e.State & DrawItemState.Selected) != 0;
+            var color = selected ? SystemColors.HighlightText : it.Link != null ? Color.RoyalBlue : list.ForeColor;
             var b = e.Bounds;
+            const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
+            int metaY;
             if (it.Kind == Kind.Image && Thumb(it) is Image t)
             {
                 int x = b.X + 4;
                 if (it.Pinned) { TextRenderer.DrawText(e.Graphics, "📌", list.Font, new Point(x, b.Y + 4), color); x += 26; }
                 e.Graphics.DrawImage(t, x, b.Y + 7, t.Width, t.Height);
                 e.Graphics.DrawRectangle(SystemPens.ControlDark, x, b.Y + 7, t.Width - 1, t.Height - 1);
+                metaY = b.Y + 9 + t.Height;
             }
             else
-                TextRenderer.DrawText(e.Graphics, it.ToString(), list.Font, new Rectangle(b.X + 8, b.Y, b.Width - 16, b.Height), color,
-                    TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            {
+                TextRenderer.DrawText(e.Graphics, it.ToString(), list.Font, new Rectangle(b.X + 8, b.Y + 5, b.Width - 16, list.Font.Height), color, flags);
+                metaY = b.Y + 5 + list.Font.Height;
+            }
+            // Petite ligne grise : heure de la copie et application d'où elle vient
+            var when = it.Time.Date == DateTime.Today ? it.Time.ToString("HH:mm") : it.Time.ToString("dd/MM HH:mm");
+            TextRenderer.DrawText(e.Graphics, it.Source.Length > 0 ? $"{when} · {it.Source}" : when, small, new Rectangle(b.X + 8, metaY, b.Width - 16, small.Height),
+                selected ? SystemColors.HighlightText : SystemColors.GrayText, flags);
             // Ligne de séparation entre éléments
             e.Graphics.DrawLine(SystemPens.ControlLight, b.X + 4, b.Bottom - 1, b.Right - 4, b.Bottom - 1);
         };
         list.MouseMove += (_, e) =>
         {
             int i = list.IndexFromPoint(e.Location);
-            var t = i >= 0 && list.Items[i] is Item it && it.Kind == Kind.Text ? it.Text : "";
-            if (t.Length > 1000) t = t[..1000] + "…";
+            var it = i >= 0 ? (Item)list.Items[i] : null;
+            var t = it?.Kind == Kind.Text ? it.Text : "";
+            if (t.Length > 3000) t = t[..3000] + "…";
             if (tip.GetToolTip(list) != t) tip.SetToolTip(list, t);
+            ShowPreview(it);
         };
+        list.MouseLeave += (_, _) => HidePreview();
+        VisibleChanged += (_, _) => { if (!Visible) HidePreview(); };
 
         var itemMenu = new ContextMenuStrip();
+        var openLink = new ToolStripMenuItem("Ouvrir dans le navigateur", null, (_, _) => OpenLink());
+        itemMenu.Items.Add(openLink);
+        itemMenu.Opening += (_, _) => { HidePreview(); openLink.Visible = Selected is [{ Link: not null }]; };
         itemMenu.Items.Add("Copier", null, (_, _) => CopySelected());
         itemMenu.Items.Add("Enregistrer sous…", null, (_, _) => SaveSelectedAs());
         itemMenu.Items.Add("Épingler / désépingler", null, (_, _) => TogglePin());
@@ -98,10 +134,13 @@ public class MainForm : Form
         list.ContextMenuStrip = itemMenu;
 
         var trayMenu = new ContextMenuStrip();
-        trayMenu.Items.Add("Ouvrir (Ctrl+Maj+V)", null, (_, _) => ShowWindow());
+        trayOpen.Click += (_, _) => ShowWindow();
+        trayMenu.Items.Add(trayOpen);
         trayMenu.Items.Add("Vider l'historique (garde les épinglés)", null, (_, _) => { DeleteImages(history.ClearUnpinned()); SaveAndRefresh(); });
         trayMenu.Items.Add("Quitter", null, (_, _) => { tray.Visible = false; Application.Exit(); });
+        trayMenu.Items.Add("Paramètres…", null, (_, _) => { ShowWindow(); OpenSettings(); });
         tray.ContextMenuStrip = trayMenu;
+        UpdateHotkeyText();
         tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowWindow(); };
 
         Deactivate += (_, _) => { if (!inDialog) Hide(); };
@@ -133,8 +172,58 @@ public class MainForm : Form
     {
         base.OnHandleCreated(e);
         AddClipboardFormatListener(Handle);
-        if (!RegisterHotKey(Handle, HOTKEY_ID, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_V))
-            tray.ShowBalloonTip(5000, "Presse-papiers", "Ctrl+Maj+V est déjà pris par une autre application. Cliquez sur l'icône pour ouvrir.", ToolTipIcon.Warning);
+        if (!RegisterHotkey(settings.Hotkey))
+            tray.ShowBalloonTip(5000, "Presse-papiers", $"{Settings.HotkeyText(settings.Hotkey)} est déjà pris par une autre application. Cliquez sur l'icône pour ouvrir.", ToolTipIcon.Warning);
+    }
+
+    bool RegisterHotkey(Keys k)
+    {
+        uint mods = MOD_NOREPEAT | ((k & Keys.Control) != 0 ? MOD_CONTROL : 0) | ((k & Keys.Shift) != 0 ? MOD_SHIFT : 0) | ((k & Keys.Alt) != 0 ? MOD_ALT : 0);
+        return RegisterHotKey(Handle, HOTKEY_ID, mods, (uint)(k & Keys.KeyCode));
+    }
+
+    void UpdateHotkeyText()
+    {
+        var k = Settings.HotkeyText(settings.Hotkey);
+        tray.Text = $"Presse-papiers ({k})";
+        trayOpen.Text = $"Ouvrir ({k})";
+    }
+
+    void OpenSettings()
+    {
+        HidePreview();
+        using var dlg = new SettingsForm(settings, Settings.Startup);
+        inDialog = true;
+        try
+        {
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+            var r = dlg.Result;
+            try { Settings.Startup = dlg.StartupChecked; }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+            {
+                MessageBox.Show(this, "Impossible de changer le lancement au démarrage : " + ex.Message, "Presse-papiers");
+            }
+            if (r.Hotkey != settings.Hotkey)
+            {
+                UnregisterHotKey(Handle, HOTKEY_ID);
+                if (RegisterHotkey(r.Hotkey)) settings.Hotkey = r.Hotkey;
+                else
+                {
+                    RegisterHotkey(settings.Hotkey);
+                    MessageBox.Show(this, $"{Settings.HotkeyText(r.Hotkey)} est déjà pris par une autre application. Raccourci inchangé.", "Presse-papiers");
+                }
+            }
+            settings.Max = history.Max = r.Max;
+            DeleteImages(history.Trim());
+            try { settings.Save(SettingsFile); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                MessageBox.Show(this, "Enregistrement des paramètres impossible : " + ex.Message, "Presse-papiers");
+            }
+            UpdateHotkeyText();
+            SaveAndRefresh();
+        }
+        finally { inDialog = false; if (Visible) Activate(); }
     }
 
     protected override void OnHandleDestroyed(EventArgs e)
@@ -170,6 +259,7 @@ public class MainForm : Form
                     using var img = Clipboard.GetImage();
                     if (img != null) it = SaveImage(img);
                 }
+                if (it != null) it.Source = SourceApp();
                 if (it != null) { DeleteImages(history.Add(it)); SaveAndRefresh(); }
                 return;
             }
@@ -186,6 +276,85 @@ public class MainForm : Form
         var path = Path.Combine(ImageDir, hash + ".png");
         if (!File.Exists(path)) File.WriteAllBytes(path, ms.ToArray());
         return new Item { Kind = Kind.Image, Text = $"Image {img.Width}×{img.Height}", Key = hash };
+    }
+
+    // Nom de l'application qui a rempli le presse-papiers ; "" si c'est nous (recopie depuis l'historique).
+    static string SourceApp()
+    {
+        var w = GetClipboardOwner();
+        if (w == IntPtr.Zero) w = GetForegroundWindow();
+        GetWindowThreadProcessId(w, out uint pid);
+        if (pid == 0 || pid == Environment.ProcessId) return "";
+        try
+        {
+            using var p = Process.GetProcessById((int)pid);
+            string? d = null;
+            try { d = p.MainModule?.FileVersionInfo.FileDescription; } catch (Win32Exception) { } // processus protégé ou administrateur
+            return string.IsNullOrWhiteSpace(d) ? p.ProcessName : d.Trim();
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return ""; }
+    }
+
+    void OpenLink()
+    {
+        if (Selected is not [{ Link: Uri u }]) return;
+        try { Process.Start(new ProcessStartInfo(u.AbsoluteUri) { UseShellExecute = true }); Hide(); }
+        catch (Win32Exception ex) { tray.ShowBalloonTip(3000, "Presse-papiers", "Impossible d'ouvrir le lien : " + ex.Message, ToolTipIcon.Error); }
+    }
+
+    // Aperçu en grand d'une image survolée, à côté de la fenêtre.
+    void ShowPreview(Item? it)
+    {
+        if (it?.Kind != Kind.Image) { HidePreview(); return; }
+        if (previewKey == it.Key) return;
+        Bitmap img;
+        try
+        {
+            using var ms = new MemoryStream(File.ReadAllBytes(ImagePath(it)));
+            using var src = Image.FromStream(ms);
+            img = new Bitmap(src);
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException) { HidePreview(); return; }
+        var wa = Screen.FromControl(this).WorkingArea;
+        double s = Math.Min(1.0, Math.Min(Math.Min(800, wa.Width / 2) / (double)img.Width, (wa.Height - 40) / (double)img.Height));
+        var size = new Size(Math.Max(1, (int)(img.Width * s)) + 2, Math.Max(1, (int)(img.Height * s)) + 2);
+        int x = Right + 8 + size.Width <= wa.Right ? Right + 8 : Math.Max(wa.Left, Left - 8 - size.Width);
+        int y = Math.Clamp(Cursor.Position.Y - size.Height / 2, wa.Top, Math.Max(wa.Top, wa.Bottom - size.Height));
+        preview.Box.Image?.Dispose();
+        preview.Box.Image = img;
+        preview.Bounds = new Rectangle(x, y, size.Width, size.Height);
+        previewKey = it.Key;
+        preview.Show();
+    }
+
+    void HidePreview()
+    {
+        if (previewKey == null) return;
+        previewKey = null;
+        preview.Hide();
+        preview.Box.Image?.Dispose();
+        preview.Box.Image = null;
+    }
+
+    // Fenêtre sans bordure qui ne prend jamais le focus (sinon la fenêtre principale se cacherait).
+    sealed class PreviewForm : Form
+    {
+        public readonly PictureBox Box = new() { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = SystemColors.Window };
+        public PreviewForm()
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            TopMost = true;
+            StartPosition = FormStartPosition.Manual;
+            Padding = new Padding(1);
+            BackColor = SystemColors.ControlDark;
+            Controls.Add(Box);
+        }
+        protected override bool ShowWithoutActivation => true;
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.ExStyle |= 0x08000000 | 0x80 | 0x8; return cp; } // NOACTIVATE | TOOLWINDOW | TOPMOST
+        }
     }
 
     static string ImagePath(Item it) => Path.Combine(ImageDir, it.Key + ".png");

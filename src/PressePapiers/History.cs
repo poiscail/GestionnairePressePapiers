@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace PressePapiers;
 
@@ -11,6 +12,13 @@ public class Item
     public string Key { get; set; } = "";    // texte ou hash de l'image : sert au dédoublonnage
     public bool Pinned { get; set; }
     public DateTime Time { get; set; } = DateTime.Now;
+    public string Source { get; set; } = "";  // application d'où vient la copie
+
+    // Lien web si le texte est une seule adresse http(s), sinon null.
+    [JsonIgnore]
+    public Uri? Link =>
+        Kind == Kind.Text && Uri.TryCreate(Text.Trim(), UriKind.Absolute, out var u) && (u.Scheme == "http" || u.Scheme == "https")
+        && !Text.Trim().Any(char.IsWhiteSpace) ? u : null;
 
     public override string ToString()
     {
@@ -23,7 +31,7 @@ public class Item
 public class History
 {
     public List<Item> Items { get; private set; } = new();
-    public int Max { get; }
+    public int Max { get; set; }
     readonly string file;
 
     public History(string file, int max = 200) { this.file = file; Max = max; }
@@ -32,8 +40,19 @@ public class History
     public List<Item> Add(Item it)
     {
         int i = Items.FindIndex(x => x.Kind == it.Kind && x.Key == it.Key);
-        if (i >= 0) { it.Pinned = Items[i].Pinned; Items.RemoveAt(i); }
+        if (i >= 0)
+        {
+            it.Pinned = Items[i].Pinned;
+            if (it.Source.Length == 0) it.Source = Items[i].Source;
+            Items.RemoveAt(i);
+        }
         Items.Insert(0, it);
+        return Trim();
+    }
+
+    // Retire les plus vieux non épinglés au-delà de Max (le plus récent est toujours gardé).
+    public List<Item> Trim()
+    {
         var removed = new List<Item>();
         for (int j = Items.Count - 1; j >= 1 && Items.Count > Max; j--)
             if (!Items[j].Pinned) { removed.Add(Items[j]); Items.RemoveAt(j); }

@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Win32;
 
@@ -33,6 +34,11 @@ public class Settings
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         File.WriteAllText(file, JsonSerializer.Serialize(this));
     }
+
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1 et plus)
+    public static void DarkTitleBar(IntPtr hwnd, bool dark) { int v = dark ? 1 : 0; DwmSetWindowAttribute(hwnd, 20, ref v, sizeof(int)); }
 
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run", RunName = "GestionnairePressePapiers";
 
@@ -133,5 +139,21 @@ public class SettingsForm : Form
             buttons,
         });
         Controls.Add(root);
+
+        if (s.IsDark)
+        {
+            ApplyDark(this);
+            HandleCreated += (_, _) => Settings.DarkTitleBar(Handle, true);
+        }
+    }
+
+    // Mode sombre : fond foncé et texte clair sur tous les contrôles.
+    static void ApplyDark(Control c)
+    {
+        c.BackColor = c is TextBox or NumericUpDown or ComboBox or Button ? Color.FromArgb(45, 45, 45) : Color.FromArgb(32, 32, 32);
+        c.ForeColor = Color.FromArgb(230, 230, 230);
+        if (c is Button b) { b.FlatStyle = FlatStyle.Flat; b.FlatAppearance.BorderColor = Color.FromArgb(90, 90, 90); }
+        if (c is ComboBox cb) cb.FlatStyle = FlatStyle.Flat;
+        foreach (Control child in c.Controls) ApplyDark(child);
     }
 }

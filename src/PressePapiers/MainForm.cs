@@ -20,7 +20,6 @@ public class MainForm : Form
     [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
     [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
-    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     const int WM_CLIPBOARDUPDATE = 0x031D, WM_HOTKEY = 0x0312, HOTKEY_ID = 1;
     const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_NOREPEAT = 0x4000;
@@ -194,8 +193,7 @@ public class MainForm : Form
         if (IsHandleCreated) { DarkTitleBar(dark); list.Invalidate(); }
     }
 
-    // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1 et plus)
-    void DarkTitleBar(bool dark) { int v = dark ? 1 : 0; DwmSetWindowAttribute(Handle, 20, ref v, sizeof(int)); }
+    void DarkTitleBar(bool dark) => Settings.DarkTitleBar(Handle, dark);
 
     protected override void OnHandleCreated(EventArgs e)
     {

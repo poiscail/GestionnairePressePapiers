@@ -1,0 +1,44 @@
+{
+  "src/PressePapiers/History.cs": {
+    "mtime": 1794856964.340722,
+    "seen": 1794857141.7973568,
+    "ast_hash": "3c26ef53d8c7f23248addd01a3a1f030",
+    "semantic_hash": ""
+  },
+  "src/PressePapiers/MainForm.cs": {
+    "mtime": 1794856992.6413016,
+    "seen": 1794857141.7973568,
+    "ast_hash": "c8f425db957efbd416d348387a95890a",
+    "semantic_hash": ""
+  },
+  "src/PressePapiers/PressePapiers.csproj": {
+    "mtime": 1794856916.211141,
+    "seen": 1794857141.7973568,
+    "ast_hash": "4f6ac05bac8b7bfcdb325ee3ed02f2bd",
+    "semantic_hash": ""
+  },
+  "src/PressePapiers/Program.cs": {
+    "mtime": 1794856916.9254975,
+    "seen": 1794857141.7973568,
+    "ast_hash": "346752d75e4477890acbdd4f311b9eee",
+    "semantic_hash": ""
+  },
+  "tests/SelfTest/Program.cs": {
+    "mtime": 1794856966.1897316,
+    "seen": 1794857141.7973568,
+    "ast_hash": "36d94b8a7cd00f4e079ca117c8b8837a",
+    "semantic_hash": ""
+  },
+  "tests/SelfTest/SelfTest.csproj": {
+    "mtime": 1794856975.095008,
+    "seen": 1794857141.7973568,
+    "ast_hash": "7d1dd013865901c73c5fd03df4fb8c98",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1794857130.0909252,
+    "seen": 1794857141.7973568,
+    "ast_hash": "3cad8024f4567cbc6233f0cc0a4e75b3",
+    "semantic_hash": ""
+  }
+}
